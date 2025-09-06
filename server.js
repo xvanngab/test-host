@@ -52,12 +52,10 @@ function handleJoinGame(ws, name, gameId) {
 function initializeGame(game) {
     game.roundOver = false;
     if (game.gameType === 'tic_tac_toe') { game.board = Array(9).fill(null); }
-    if (game.gameType === 'memory_match') {
-        const values = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-        values.sort(() => Math.random() - 0.5);
-        game.board = values.map(val => ({ value: val, isFlipped: false, isMatched: false }));
-        game.flippedIndices = [];
-        game.playerPoints = { [game.players[0].id]: 0 };
+    if (game.gameType === 'battleship') {
+        game.boards = [placeShips(), placeShips()]; // boards are for display, hits are on opponent's real board
+        game.ships = [getShipLocations(game.boards[0]), getShipLocations(game.boards[1])];
+        game.hits = [[], []]; // hits by player 0 on player 1's board, and vice-versa
     }
 }
 
@@ -65,9 +63,6 @@ function startGame(game) {
     const [p1] = game.players;
     game.turn = p1.id;
     game.status = `It's ${p1.name}'s turn.`;
-    if (game.gameType === 'memory_match' && game.players.length > 1) {
-        game.playerPoints[game.players[1].id] = 0;
-    }
     broadcast(game.gameId, { type: 'gameState', game });
 }
 
@@ -82,7 +77,7 @@ function handleMove(ws, gameId, move) {
     const game = games[gameId];
     if (!game || game.roundOver || game.gameOver || game.turn !== ws.id) return;
     if (game.gameType === 'tic_tac_toe') handleTicTacToeMove(game, ws.id, move.index);
-    if (game.gameType === 'memory_match') handleMemoryMatchMove(game, ws.id, move.index);
+    if (game.gameType === 'battleship') handleBattleshipMove(game, ws.id, move.index);
     checkMatchOver(game);
     broadcast(game.gameId, { type: 'gameState', game });
 }
@@ -101,30 +96,23 @@ function handleTicTacToeMove(game, playerId, index) {
     }
 }
 
-function handleMemoryMatchMove(game, playerId, index) {
-    if (game.board[index].isFlipped || game.flippedIndices.length >= 2) return;
-    game.board[index].isFlipped = true;
-    game.flippedIndices.push(index);
-    if (game.flippedIndices.length === 2) {
-        const [i1, i2] = game.flippedIndices;
-        if (game.board[i1].value === game.board[i2].value) {
-            game.board[i1].isMatched = true;
-            game.board[i2].isMatched = true;
-            game.playerPoints[playerId]++;
-            game.flippedIndices = [];
-            if (game.board.every(c => c.isMatched)) {
-                const winner = game.playerPoints[game.players[0].id] > game.playerPoints[game.players[1].id] ? game.players[0] : game.players[1];
-                endRound(game, winner);
-            }
-        } else {
-            setTimeout(() => {
-                game.board[i1].isFlipped = false;
-                game.board[i2].isFlipped = false;
-                game.flippedIndices = [];
-                switchTurn(game);
-                broadcast(game.gameId, { type: 'gameState', game });
-            }, 1500);
-        }
+function handleBattleshipMove(game, playerId, index) {
+    const playerIndex = game.players.findIndex(p => p.id === playerId);
+    const opponentIndex = 1 - playerIndex;
+    if(game.boards[opponentIndex][index] === 'hit' || game.boards[opponentIndex][index] === 'miss') return;
+
+    if(game.ships[opponentIndex].includes(index)){
+        game.boards[opponentIndex][index] = 'hit';
+        game.status = 'A hit!';
+    } else {
+        game.boards[opponentIndex][index] = 'miss';
+        game.status = 'A miss!';
+    }
+    const opponentShipsSunk = game.ships[opponentIndex].every(shipIndex => game.boards[opponentIndex][shipIndex] === 'hit');
+    if(opponentShipsSunk){
+        endRound(game, game.players[playerIndex]);
+    } else {
+        switchTurn(game);
     }
 }
 
@@ -136,7 +124,7 @@ function endRound(game, winner) {
 
 function checkMatchOver(game) {
     const [p1, p2] = game.players;
-    if (game.matchScore[p1.id] >= WIN_SCORE) { game.gameOver = true; game.status = `${p1.name} wins the match!`; }
+    if (p2 && game.matchScore[p1.id] >= WIN_SCORE) { game.gameOver = true; game.status = `${p1.name} wins the match!`; }
     else if (p2 && game.matchScore[p2.id] >= WIN_SCORE) { game.gameOver = true; game.status = `${p2.name} wins the match!`; }
 }
 
@@ -167,4 +155,38 @@ function broadcast(gameId, data) {
             }
         });
     });
-                        }
+}
+
+function placeShips() {
+    const board = Array(100).fill('');
+    const ships = [5, 4, 3, 3, 2];
+    ships.forEach(size => {
+        let placed = false;
+        while(!placed){
+            const isHorizontal = Math.random() < 0.5;
+            const start = Math.floor(Math.random() * 100);
+            const row = Math.floor(start / 10);
+            const col = start % 10;
+            if(canPlace(board, size, row, col, isHorizontal)){
+                for(let i=0; i<size; i++){
+                    board[start + (isHorizontal ? i : i*10)] = 'ship';
+                }
+                placed = true;
+            }
+        }
+    });
+    return board;
+}
+function canPlace(board, size, row, col, isHorizontal) {
+    if (isHorizontal) {
+        if (col + size > 10) return false;
+        for (let i = 0; i < size; i++) if (board[row * 10 + col + i]) return false;
+    } else {
+        if (row + size > 10) return false;
+        for (let i = 0; i < size; i++) if (board[(row + i) * 10 + col]) return false;
+    }
+    return true;
+}
+function getShipLocations(board){
+    return board.map((val, i) => val === 'ship' ? i : -1).filter(i => i !== -1);
+        }
