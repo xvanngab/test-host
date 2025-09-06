@@ -51,17 +51,23 @@ function handleJoinGame(ws, name, gameId) {
 
 function initializeGame(game) {
     game.roundOver = false;
-    if (game.gameType === 'checkers') { game.board = [ [0, 2, 0, 2, 0, 2, 0, 2], [2, 0, 2, 0, 2, 0, 2, 0], [0, 2, 0, 2, 0, 2, 0, 2], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [1, 0, 1, 0, 1, 0, 1, 0], [0, 1, 0, 1, 0, 1, 0, 1], [1, 0, 1, 0, 1, 0, 1, 0], ]; }
-    if (game.gameType === 'dots_and_boxes') {
-        const size = 4;
-        game.board = { size, hLines: Array(size + 1).fill(null).map(() => Array(size).fill(0)), vLines: Array(size).fill(null).map(() => Array(size + 1).fill(0)), boxes: Array(size).fill(null).map(() => Array(size).fill(0)), };
+    if (game.gameType === 'tic_tac_toe') { game.board = Array(9).fill(null); }
+    if (game.gameType === 'memory_match') {
+        const values = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+        values.sort(() => Math.random() - 0.5);
+        game.board = values.map(val => ({ value: val, isFlipped: false, isMatched: false }));
+        game.flippedIndices = [];
+        game.playerPoints = { [game.players[0].id]: 0 };
     }
 }
 
 function startGame(game) {
-    const [p1, p2] = game.players;
+    const [p1] = game.players;
     game.turn = p1.id;
     game.status = `It's ${p1.name}'s turn.`;
+    if (game.gameType === 'memory_match' && game.players.length > 1) {
+        game.playerPoints[game.players[1].id] = 0;
+    }
     broadcast(game.gameId, { type: 'gameState', game });
 }
 
@@ -75,67 +81,49 @@ function resetRound(gameId) {
 function handleMove(ws, gameId, move) {
     const game = games[gameId];
     if (!game || game.roundOver || game.gameOver || game.turn !== ws.id) return;
-    let completedBox = false;
-    if (game.gameType === 'checkers') handleCheckersMove(game, ws.id, move);
-    if (game.gameType === 'dots_and_boxes') completedBox = handleDotsAndBoxesMove(game, ws.id, move);
-    if (!completedBox) switchTurn(game);
-    checkRoundOver(game, ws.id);
+    if (game.gameType === 'tic_tac_toe') handleTicTacToeMove(game, ws.id, move.index);
+    if (game.gameType === 'memory_match') handleMemoryMatchMove(game, ws.id, move.index);
     checkMatchOver(game);
     broadcast(game.gameId, { type: 'gameState', game });
 }
 
-function handleDotsAndBoxesMove(game, playerId, move) {
-    const { type, r, c } = move;
-    const playerNum = game.players.findIndex(p => p.id === playerId) + 1;
-    let boxCompleted = false;
-    if (type === 'h' && game.board.hLines[r][c] === 0) { game.board.hLines[r][c] = playerNum; }
-    else if (type === 'v' && game.board.vLines[r][c] === 0) { game.board.vLines[r][c] = playerNum; }
-    else return true;
-    for (let br = 0; br < game.board.size; br++) {
-        for (let bc = 0; bc < game.board.size; bc++) {
-            if (game.board.boxes[br][bc] === 0 && game.board.hLines[br][bc] && game.board.hLines[br + 1][bc] && game.board.vLines[br][bc] && game.board.vLines[br][bc + 1]) {
-                game.board.boxes[br][bc] = playerNum;
-                boxCompleted = true;
+function handleTicTacToeMove(game, playerId, index) {
+    if (game.board[index]) return;
+    const playerIndex = game.players.findIndex(p => p.id === playerId);
+    game.board[index] = playerIndex === 0 ? 'X' : 'O';
+    const lines = [ [0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6] ];
+    if (lines.some(l => game.board[l[0]] && game.board[l[0]] === game.board[l[1]] && game.board[l[0]] === game.board[l[2]])) {
+        endRound(game, game.players[playerIndex]);
+    } else if (game.board.every(cell => cell)) {
+        endRound(game, null);
+    } else {
+        switchTurn(game);
+    }
+}
+
+function handleMemoryMatchMove(game, playerId, index) {
+    if (game.board[index].isFlipped || game.flippedIndices.length >= 2) return;
+    game.board[index].isFlipped = true;
+    game.flippedIndices.push(index);
+    if (game.flippedIndices.length === 2) {
+        const [i1, i2] = game.flippedIndices;
+        if (game.board[i1].value === game.board[i2].value) {
+            game.board[i1].isMatched = true;
+            game.board[i2].isMatched = true;
+            game.playerPoints[playerId]++;
+            game.flippedIndices = [];
+            if (game.board.every(c => c.isMatched)) {
+                const winner = game.playerPoints[game.players[0].id] > game.playerPoints[game.players[1].id] ? game.players[0] : game.players[1];
+                endRound(game, winner);
             }
-        }
-    }
-    return boxCompleted;
-}
-
-function handleCheckersMove(game, playerId, move) {
-    const { from, to } = move; const piece = game.board[from.row][from.col]; const playerNum = game.players.findIndex(p => p.id === playerId) + 1;
-    if (piece === 0 || (piece % 11 !== playerNum)) return;
-    const dy = to.row - from.row; const dx = to.col - from.col; const isKing = piece > 10;
-    if (!isKing && ((playerNum === 1 && dy > 0) || (playerNum === 2 && dy < 0))) return;
-    if (Math.abs(dy) === 2 && Math.abs(dx) === 2) {
-        const jumpedRow = from.row + dy / 2; const jumpedCol = from.col + dx / 2; const jumpedPiece = game.board[jumpedRow][jumpedCol];
-        if (jumpedPiece !== 0 && jumpedPiece % 11 !== playerNum) {
-            game.board[to.row][to.col] = piece; game.board[from.row][from.col] = 0; game.board[jumpedRow][jumpedCol] = 0;
-            if ((to.row === 0 && playerNum === 1) || (to.row === 7 && playerNum === 2)) game.board[to.row][to.col] = playerNum * 11;
-        }
-    } else if (Math.abs(dy) === 1 && Math.abs(dx) === 1) {
-        if (game.board[to.row][to.col] === 0) {
-            game.board[to.row][to.col] = piece; game.board[from.row][from.col] = 0;
-            if ((to.row === 0 && playerNum === 1) || (to.row === 7 && playerNum === 2)) game.board[to.row][to.col] = playerNum * 11;
-        }
-    }
-}
-
-function checkRoundOver(game, playerId) {
-    if (game.gameType === 'checkers') {
-        const playerNum = game.players.findIndex(p => p.id === playerId) + 1;
-        const opponentNum = playerNum === 1 ? 2 : 1; let opponentPieces = 0;
-        for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if (game.board[r][c] % 11 === opponentNum) opponentPieces++;
-        if (opponentPieces === 0) endRound(game, game.players[playerNum - 1]);
-    }
-    if (game.gameType === 'dots_and_boxes') {
-        let totalBoxes = 0; game.board.boxes.forEach(row => row.forEach(box => { if (box !== 0) totalBoxes++; }));
-        if (totalBoxes === game.board.size * game.board.size) {
-            let p1Boxes = 0; let p2Boxes = 0;
-            game.board.boxes.forEach(row => row.forEach(box => { if (box === 1) p1Boxes++; else if (box === 2) p2Boxes++; }));
-            if (p1Boxes > p2Boxes) endRound(game, game.players[0]);
-            else if (p2Boxes > p1Boxes) endRound(game, game.players[1]);
-            else endRound(game, null);
+        } else {
+            setTimeout(() => {
+                game.board[i1].isFlipped = false;
+                game.board[i2].isFlipped = false;
+                game.flippedIndices = [];
+                switchTurn(game);
+                broadcast(game.gameId, { type: 'gameState', game });
+            }, 1500);
         }
     }
 }
@@ -149,14 +137,16 @@ function endRound(game, winner) {
 function checkMatchOver(game) {
     const [p1, p2] = game.players;
     if (game.matchScore[p1.id] >= WIN_SCORE) { game.gameOver = true; game.status = `${p1.name} wins the match!`; }
-    else if (game.matchScore[p2.id] >= WIN_SCORE) { game.gameOver = true; game.status = `${p2.name} wins the match!`; }
+    else if (p2 && game.matchScore[p2.id] >= WIN_SCORE) { game.gameOver = true; game.status = `${p2.name} wins the match!`; }
 }
 
 function switchTurn(game) {
     const currentPlayerIndex = game.players.findIndex(p => p.id === game.turn);
     const nextPlayer = game.players[1 - currentPlayerIndex];
-    game.turn = nextPlayer.id;
-    game.status = `It's ${nextPlayer.name}'s turn.`;
+    if(nextPlayer) {
+        game.turn = nextPlayer.id;
+        game.status = `It's ${nextPlayer.name}'s turn.`;
+    }
 }
 
 function handleDisconnect(ws) {
@@ -165,7 +155,9 @@ function handleDisconnect(ws) {
         if (games[gameId].players.length <= 2) { broadcast(gameId, { type: 'opponentLeft' }); delete games[gameId]; }
     }
 }
+
 function generateId() { return Math.random().toString(36).substring(2, 9); }
+
 function broadcast(gameId, data) {
     if (!games[gameId]) return;
     games[gameId].players.forEach(player => {
@@ -175,4 +167,4 @@ function broadcast(gameId, data) {
             }
         });
     });
-}
+                        }
