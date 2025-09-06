@@ -53,9 +53,8 @@ function initializeGame(game) {
     game.roundOver = false;
     if (game.gameType === 'tic_tac_toe') { game.board = Array(9).fill(null); }
     if (game.gameType === 'battleship') {
-        game.boards = [placeShips(), placeShips()]; // boards are for display, hits are on opponent's real board
+        game.boards = [placeShips(), placeShips()];
         game.ships = [getShipLocations(game.boards[0]), getShipLocations(game.boards[1])];
-        game.hits = [[], []]; // hits by player 0 on player 1's board, and vice-versa
     }
 }
 
@@ -100,7 +99,6 @@ function handleBattleshipMove(game, playerId, index) {
     const playerIndex = game.players.findIndex(p => p.id === playerId);
     const opponentIndex = 1 - playerIndex;
     if(game.boards[opponentIndex][index] === 'hit' || game.boards[opponentIndex][index] === 'miss') return;
-
     if(game.ships[opponentIndex].includes(index)){
         game.boards[opponentIndex][index] = 'hit';
         game.status = 'A hit!';
@@ -177,6 +175,7 @@ function placeShips() {
     });
     return board;
 }
+
 function canPlace(board, size, row, col, isHorizontal) {
     if (isHorizontal) {
         if (col + size > 10) return false;
@@ -187,6 +186,7 @@ function canPlace(board, size, row, col, isHorizontal) {
     }
     return true;
 }
+
 function getShipLocations(board){
     return board.map((val, i) => val === 'ship' ? i : -1).filter(i => i !== -1);
         }
