@@ -55,13 +55,7 @@ function initializeGame(game) {
     if (game.gameType === 'checkers') { game.board = [ [0, 2, 0, 2, 0, 2, 0, 2], [2, 0, 2, 0, 2, 0, 2, 0], [0, 2, 0, 2, 0, 2, 0, 2], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [1, 0, 1, 0, 1, 0, 1, 0], [0, 1, 0, 1, 0, 1, 0, 1], [1, 0, 1, 0, 1, 0, 1, 0], ]; }
     if (game.gameType === 'battleship') { game.boards = [placeShips(), placeShips()]; game.ships = [getShipLocations(game.boards[0]), getShipLocations(game.boards[1])]; }
     if (game.gameType === 'rock_paper_scissors') { game.moves = {}; }
-    if (game.gameType === 'memory_match') {
-        const values = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-        values.sort(() => Math.random() - 0.5);
-        game.board = values.map(val => ({ value: val, isFlipped: false, isMatched: false }));
-        game.flippedIndices = [];
-        if (game.players.length > 0) game.playerPoints = { [game.players[0].id]: 0 };
-    }
+    if (game.gameType === 'memory_match') { const v = ['A','B','C','D','E','F','G','H','A','B','C','D','E','F','G','H']; v.sort(()=>Math.random()-0.5); game.board=v.map(val=>({value:val,isFlipped:false,isMatched:false})); game.flippedIndices = []; if (game.players.length > 0) game.playerPoints = { [game.players[0].id]: 0 }; }
 }
 
 function startGame(game) {
